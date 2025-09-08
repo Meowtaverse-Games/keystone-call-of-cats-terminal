@@ -1,0 +1,8 @@
+[package]
+name = "keystone_cc_terminal"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = "0.16.1"
+bevy_window_reveal = "0.1.1"
