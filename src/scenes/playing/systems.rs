@@ -67,7 +67,7 @@ pub fn setup_terminal(
         cursor_col: 0,
         cursor_row: 0,
         cells,
-        font,
+        font: font.clone(),
         keySound,
     });
 
