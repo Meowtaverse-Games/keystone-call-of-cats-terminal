@@ -12,6 +12,7 @@ impl Plugin for PlayingPlugin {
                     handle_received_characters,
                     handle_special_keys, // Backspace / Enter
                     update_pulse_and_layout,
+                    update_cursor_hud,
                     handle_window_resize,
                 )
                     .run_if(in_state(AppState::Playing)),

@@ -45,6 +45,10 @@ pub struct Pulse {
     t: f32, // 0.0..=1.0
 }
 
+/// カーソル位置表示用のHUD
+#[derive(Component)]
+pub struct CursorHud;
+
 pub fn setup_terminal(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -66,6 +70,25 @@ pub fn setup_terminal(
         font,
         keySound,
     });
+
+    // カーソル位置HUD（左上に小さく表示）
+    let hud_pos = Vec2::new(geom.origin_top_left.x + 8.0, geom.origin_top_left.y - 8.0);
+    commands.spawn((
+        Text2d(format!("({},{})", 0, 0)),
+        TextFont {
+            font: font.clone(),
+            font_size: (geom.font_size * 0.8).max(8.0),
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 1.0, 0.0)),
+        Transform {
+            translation: Vec3::new(hud_pos.x, hud_pos.y, 10.0),
+            ..default()
+        },
+        Visibility::Visible,
+        CursorHud,
+        Name::new("Cursor HUD"),
+    ));
 }
 
 /// ウィンドウサイズからセルサイズ・フォントサイズを算出
@@ -254,6 +277,32 @@ pub fn update_pulse_and_layout(
         let p = cell_to_world(*geom, cell.col, cell.row);
         tf.translation.x = p.x;
         tf.translation.y = p.y;
+    }
+}
+
+/// カーソル位置HUDの更新（文字列と配置を毎フレーム調整）
+pub fn update_cursor_hud(
+    geom: Res<GridGeom>,
+    term: Res<Terminal>,
+    mut q_hud: Query<(&mut Text2d, &mut Transform), With<CursorHud>>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
+) {
+    if let Ok((mut text, mut tf)) = q_hud.get_single_mut() {
+        // 表示テキスト更新
+        text.0 = format!("cursor: ({},{})", term.cursor_col, term.cursor_row);
+
+        // ウィンドウの左上に沿わせる（8pxマージン）
+        if let Ok(w) = q_window.get_single() {
+            let g = compute_grid_geom(w.width(), w.height());
+            let pos = Vec2::new(g.origin_top_left.x + 8.0, g.origin_top_left.y - 8.0);
+            tf.translation.x = pos.x;
+            tf.translation.y = pos.y;
+        } else {
+            // 予備：既存geomから算出
+            let pos = Vec2::new(geom.origin_top_left.x + 8.0, geom.origin_top_left.y - 8.0);
+            tf.translation.x = pos.x;
+            tf.translation.y = pos.y;
+        }
     }
 }
 
