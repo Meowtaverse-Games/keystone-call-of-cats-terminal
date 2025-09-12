@@ -10,8 +10,6 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>();
-        app.add_plugins((
-            crate::scenes::playing::PlayingPlugin,
-        ));
+        app.add_plugins((crate::scenes::playing::PlayingPlugin,));
     }
 }
