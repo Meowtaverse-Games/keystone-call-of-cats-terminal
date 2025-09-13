@@ -3,7 +3,7 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use crate::scenes::playing::components::PlayingScene;
+use crate::scenes::playing::components::*;
 
 const COLS: usize = 80;
 const ROWS: usize = 40;
@@ -23,31 +23,14 @@ pub struct GridGeom {
 }
 
 /// カーソル位置＋文字エンティティのバッファ（固定長）
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub struct Terminal {
     cursor_col: usize,
     cursor_row: usize,
     cells: Vec<Option<Entity>>, // ROWS*COLS
     font: Handle<Font>,
-    keySound: Handle<AudioSource>,
+    key_sound: Handle<AudioSource>,
 }
-
-/// 1文字エンティティ
-#[derive(Component)]
-pub struct CellChar {
-    col: usize,
-    row: usize,
-}
-
-/// 拡大→縮小のパルス演出用
-#[derive(Component)]
-pub struct Pulse {
-    t: f32, // 0.0..=1.0
-}
-
-/// カーソル位置表示用のHUD
-#[derive(Component)]
-pub struct CursorHud;
 
 pub fn setup_terminal(
     mut commands: Commands,
@@ -55,7 +38,7 @@ pub fn setup_terminal(
     q_window: Query<&Window, With<PrimaryWindow>>,
 ) {
     let font: Handle<Font> = asset_server.load("fonts/JF-Dot-MPlus12.ttf");
-    let keySound: Handle<AudioSource> = asset_server.load("sounds/key/key.wav");
+    let key_sound: Handle<AudioSource> = asset_server.load("sounds/key/key.wav");
 
     let window = q_window.single().unwrap();
     let geom = compute_grid_geom(window.width(), window.height());
@@ -63,13 +46,13 @@ pub fn setup_terminal(
 
     let cells = vec![None; COLS * ROWS];
 
-    commands.insert_resource(Terminal {
+    let mut term = Terminal {
         cursor_col: 0,
         cursor_row: 0,
         cells,
         font: font.clone(),
-        keySound,
-    });
+        key_sound: key_sound.clone(),
+    };
 
     // カーソル位置HUD（左上に小さく表示）
     let hud_pos = Vec2::new(geom.origin_top_left.x + 8.0, geom.origin_top_left.y - 8.0);
@@ -89,6 +72,22 @@ pub fn setup_terminal(
         CursorHud,
         Name::new("Cursor HUD"),
     ));
+
+    let title = [
+        "┬┌─┌─┐┬ ┬┌─┐┌┬┐┌─┐┌┐┌┌─┐  ┌┬┐┌─┐┬─┐┌┬┐┬┌┐┌┌─┐┬  ",
+        "├┴┐├┤ └┬┘└─┐ │ │ ││││├┤    │ ├┤ ├┬┘│││││││├─┤│  ",
+        "┴ ┴└─┘ ┴ └─┘ ┴ └─┘┘└┘└─┘   ┴ └─┘┴└─┴ ┴┴┘└┘┴ ┴┴─┘",
+    ];
+    new_line(&mut term);
+    for (_index, value) in title.iter().enumerate() {
+        for (_col, ch) in value.chars().enumerate() {
+            spawn_char_entity(&mut commands, &mut term, geom, ch, false);
+        }
+        new_line(&mut term);
+    }
+
+    // ここで最終状態のターミナルをリソースとして挿入する
+    commands.insert_resource(term);
 }
 
 /// ウィンドウサイズからセルサイズ・フォントサイズを算出
@@ -137,7 +136,7 @@ pub fn handle_received_characters(
                 .map(|c| if c.is_control() { None } else { Some(c) })
                 .flatten()
                 .map(|c| {
-                    spawn_char_entity(&mut commands, &mut term, *geom, c);
+                    spawn_char_entity(&mut commands, &mut term, *geom, c, true);
                 });
         }
     }
@@ -148,7 +147,6 @@ pub fn handle_special_keys(
     mut keys: EventReader<KeyboardInput>,
     mut term: ResMut<Terminal>,
     mut commands: Commands,
-    geom: Res<GridGeom>,
 ) {
     for key in keys.read() {
         if !key.state.is_pressed() {
@@ -167,18 +165,26 @@ pub fn handle_special_keys(
 }
 
 /// 1文字エンティティ作成＋パルス付与＋カーソル前進
-pub fn spawn_char_entity(commands: &mut Commands, term: &mut Terminal, geom: GridGeom, ch: char) {
+pub fn spawn_char_entity(
+    commands: &mut Commands,
+    term: &mut Terminal,
+    geom: GridGeom,
+    ch: char,
+    is_play_sound: bool,
+) {
     let (col, row) = (term.cursor_col, term.cursor_row);
     let idx = row * geom.cols + col;
 
     print!("{}", ch);
-    commands.spawn((
-        AudioPlayer::new(term.keySound.clone()),
-        PlaybackSettings {
-            mode: PlaybackMode::Despawn,
-            ..default()
-        },
-    ));
+    if is_play_sound {
+        commands.spawn((
+            AudioPlayer::new(term.key_sound.clone()),
+            PlaybackSettings {
+                mode: PlaybackMode::Despawn,
+                ..default()
+            },
+        ));
+    }
 
     // 既存のセルに文字があるなら消す（上書き想定）
     if let Some(e) = term.cells[idx].take() {
@@ -248,7 +254,7 @@ pub fn backspace(commands: &mut Commands, term: &mut Terminal) {
     }
     let idx = term.cursor_row * COLS + term.cursor_col;
     if let Some(e) = term.cells[idx].take() {
-        commands.entity(e).despawn_recursive();
+        commands.entity(e).despawn();
     }
 }
 
@@ -287,12 +293,12 @@ pub fn update_cursor_hud(
     mut q_hud: Query<(&mut Text2d, &mut Transform), With<CursorHud>>,
     q_window: Query<&Window, With<PrimaryWindow>>,
 ) {
-    if let Ok((mut text, mut tf)) = q_hud.get_single_mut() {
+    if let Ok((mut text, mut tf)) = q_hud.single_mut() {
         // 表示テキスト更新
         text.0 = format!("cursor: ({},{})", term.cursor_col, term.cursor_row);
 
         // ウィンドウの左上に沿わせる（8pxマージン）
-        if let Ok(w) = q_window.get_single() {
+        if let Ok(w) = q_window.single() {
             let g = compute_grid_geom(w.width(), w.height());
             let pos = Vec2::new(g.origin_top_left.x + 8.0, g.origin_top_left.y - 8.0);
             tf.translation.x = pos.x;
@@ -311,7 +317,7 @@ pub fn handle_window_resize(
     q_window: Query<&Window, (Changed<Window>, With<PrimaryWindow>)>,
     mut geom: ResMut<GridGeom>,
 ) {
-    if let Ok(w) = q_window.get_single() {
+    if let Ok(w) = q_window.single() {
         *geom = compute_grid_geom(w.width(), w.height());
     }
 }
